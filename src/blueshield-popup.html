@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>BlueShield</title>
+  <link rel="stylesheet" href="blueshield-popup.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="header">
+      <img src="branding/icon-48.png" width="38" height="38" alt="">
+      <div>
+        <h1>BlueShield</h1>
+        <p id="site-name">Checking this site…</p>
+      </div>
+    </header>
+
+    <section class="stats" aria-label="Protection status">
+      <div class="stat">
+        <span class="stat-value" id="stat-blocking">–</span>
+        <span class="stat-label">Blocking</span>
+      </div>
+      <div class="stat">
+        <span class="stat-value" id="stat-trackers">–</span>
+        <span class="stat-label">Trackers</span>
+      </div>
+    </section>
+
+    <button class="primary" type="button" id="toggle-site">Pause on this site</button>
+
+    <nav class="links" aria-label="BlueShield pages">
+      <button type="button" data-open="blueshield-settings.html">
+        <span class="link-icon" aria-hidden="true">☰</span> Settings
+      </button>
+      <button type="button" data-open="popup.html">
+        <span class="link-icon" aria-hidden="true">⚙</span> Blocking details
+      </button>
+      <button type="button" data-open="vendor/tracker-protection/skin/popup.html">
+        <span class="link-icon" aria-hidden="true">◉</span> Tracker report
+      </button>
+      <button type="button" data-open="blueshield-settings.html#about">
+        <span class="link-icon" aria-hidden="true">ⓘ</span> About
+      </button>
+    </nav>
+  </main>
+  <script src="blueshield-popup.js"></script>
+</body>
+</html>

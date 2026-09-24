@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>BlueShield Settings</title>
+  <link rel="stylesheet" href="blueshield-settings.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <img src="branding/icon-48.png" width="40" height="40" alt="">
+      <div>
+        <strong>BlueShield</strong>
+        <small>Settings</small>
+      </div>
+    </div>
+
+    <nav id="nav" aria-label="Settings sections">
+      <button type="button" class="nav-item active" data-tab="overview">Overview</button>
+      <button type="button" class="nav-item" data-tab="protection">Protection</button>
+      <button type="button" class="nav-item" data-tab="lists">Filter lists</button>
+      <button type="button" class="nav-item" data-tab="custom">Custom rules</button>
+      <button type="button" class="nav-item" data-tab="trackers">Trackers</button>
+      <button type="button" class="nav-item" data-tab="storage">Data &amp; storage</button>
+      <button type="button" class="nav-item" data-tab="about">About</button>
+    </nav>
+
+    <div class="sidebar-foot">
+      <button type="button" id="open-popup" class="ghost">Open toolbar popup</button>
+    </div>
+  </aside>
+
+  <main class="content">
+    <div id="status" class="status" role="status" aria-live="polite" hidden></div>
+
+    <!-- ============================ OVERVIEW ============================ -->
+    <section class="panel active" data-panel="overview">
+      <h1>Overview</h1>
+      <p class="lead">Everything BlueShield protects you with, in one place.</p>
+
+      <div class="cards">
+        <article class="card">
+          <h2>Content blocking</h2>
+          <p class="metric" id="ov-blocking-level">–</p>
+          <p class="muted">Default filtering level for new sites</p>
+        </article>
+        <article class="card">
+          <h2>Filter lists</h2>
+          <p class="metric" id="ov-list-count">–</p>
+          <p class="muted">Enabled block lists</p>
+        </article>
+        <article class="card">
+          <h2>Trackers</h2>
+          <p class="metric" id="ov-tracker-count">–</p>
+          <p class="muted">Domains learned by automatic protection</p>
+        </article>
+        <article class="card">
+          <h2>Storage used</h2>
+          <p class="metric" id="ov-storage">–</p>
+          <p class="muted">Saved settings and learned data</p>
+        </article>
+      </div>
+
+      <h2 class="section-title">This site</h2>
+      <div class="row" id="ov-site-row">
+        <span class="grow" id="ov-site">Not available</span>
+        <button type="button" class="btn" id="ov-toggle-site">Pause on this site</button>
+      </div>
+      <p class="muted" id="ov-site-hint">Open a normal web page to control protection per site.</p>
+    </section>
+
+    <!-- =========================== PROTECTION =========================== -->
+    <section class="panel" data-panel="protection">
+      <h1>Protection</h1>
+      <p class="lead">Control how aggressively BlueShield blocks content and trackers.</p>
+
+      <h2 class="section-title">Default filtering level</h2>
+      <div class="choices" id="filter-modes" role="radiogroup" aria-label="Default filtering level">
+        <label class="choice">
+          <input type="radio" name="filterMode" value="1">
+          <span class="choice-body">
+            <strong>Basic</strong>
+            <small>Blocks the most common advertising and tracking patterns. Works on the websites you already allowed.</small>
+          </span>
+        </label>
+        <label class="choice">
+          <input type="radio" name="filterMode" value="2">
+          <span class="choice-body">
+            <strong>Balanced</strong>
+            <small>Adds more blocking rules for a cleaner page. Asks for extra site access when enabled.</small>
+          </span>
+        </label>
+        <label class="choice">
+          <input type="radio" name="filterMode" value="3">
+          <span class="choice-body">
+            <strong>Strict</strong>
+            <small>Maximum blocking, including cosmetic filtering everywhere. Breaks some sites.</small>
+          </span>
+        </label>
+      </div>
+
+      <h2 class="section-title">Behaviour</h2>
+      <div class="toggles" id="behaviour-toggles"></div>
+
+      <h2 class="section-title">Tracker learning</h2>
+      <div class="toggles" id="tracker-toggles"></div>
+    </section>
+
+    <!-- ============================ LISTS ============================== -->
+    <section class="panel" data-panel="lists">
+      <h1>Filter lists</h1>
+      <p class="lead">Choose which block lists BlueShield uses.</p>
+      <div class="row">
+        <span class="grow muted" id="lists-summary">Loading…</span>
+        <button type="button" class="btn" id="lists-refresh">Reload</button>
+      </div>
+      <div id="lists-container" class="list-groups"></div>
+
+      <h2 class="section-title">Add a list by URL</h2>
+      <div class="row">
+        <input type="url" id="list-url" class="grow" placeholder="https://example.org/list.txt" spellcheck="false">
+        <button type="button" class="btn primary" id="list-add">Add list</button>
+      </div>
+      <div id="imported-lists" class="chips"></div>
+    </section>
+
+    <!-- =========================== CUSTOM ============================== -->
+    <section class="panel" data-panel="custom">
+      <h1>Custom rules</h1>
+      <p class="lead">Your own blocking rules. Everything here is stored locally.</p>
+
+      <h2 class="section-title">Per-site cosmetic rules</h2>
+      <div class="row">
+        <input type="text" id="cf-host" class="grow" placeholder="example.com" spellcheck="false">
+        <input type="text" id="cf-selectors" class="grow" placeholder=".ad-banner, #sidebar" spellcheck="false">
+        <button type="button" class="btn primary" id="cf-add">Add</button>
+      </div>
+      <div id="cf-list" class="rule-list"></div>
+
+      <h2 class="section-title">Advanced rules</h2>
+      <p class="muted">One rule per line. Hostname##selector hides an element; hostname##+js(...) runs a scriptlet.</p>
+      <textarea id="sandbox" rows="12" spellcheck="false" placeholder="example.com##.ad"></textarea>
+      <div class="row">
+        <span class="grow"></span>
+        <button type="button" class="btn primary" id="sandbox-save">Save advanced rules</button>
+      </div>
+    </section>
+
+    <!-- =========================== TRACKERS ============================ -->
+    <section class="panel" data-panel="trackers">
+      <h1>Trackers</h1>
+      <p class="lead">Automatic protection learns which third parties track you and blocks them.</p>
+
+      <h2 class="section-title">Websites where protection is off</h2>
+      <div class="row">
+        <input type="text" id="allow-host" class="grow" placeholder="example.com" spellcheck="false">
+        <button type="button" class="btn" id="allow-add">Pause here</button>
+      </div>
+      <div id="allow-list" class="chips"></div>
+
+      <h2 class="section-title">Learned domains</h2>
+      <div class="row">
+        <input type="search" id="tracker-search" class="grow" placeholder="Search domains" spellcheck="false">
+        <select id="tracker-filter">
+          <option value="">All</option>
+          <option value="block">Blocked</option>
+          <option value="cookieblock">Cookie blocked</option>
+          <option value="dnt">Do Not Track</option>
+          <option value="noaction">Allowed</option>
+        </select>
+      </div>
+      <div id="tracker-list" class="tracker-list"></div>
+    </section>
+
+    <!-- ============================ STORAGE =========================== -->
+    <section class="panel" data-panel="storage">
+      <h1>Data &amp; storage</h1>
+      <p class="lead">Save, back up or erase everything BlueShield stored on this device.</p>
+
+      <div class="cards">
+        <article class="card">
+          <h2>Storage used</h2>
+          <p class="metric" id="st-bytes">–</p>
+          <p class="muted" id="st-keys">–</p>
+        </article>
+        <article class="card">
+          <h2>Saved settings</h2>
+          <p class="metric" id="st-settings">–</p>
+          <p class="muted">Written to this browser profile</p>
+        </article>
+      </div>
+
+      <h2 class="section-title">Save now</h2>
+      <div class="row">
+        <span class="grow muted">Force every setting and learned tracker to be written to storage immediately.</span>
+        <button type="button" class="btn primary" id="st-save">Save all settings</button>
+      </div>
+
+      <h2 class="section-title">Backup</h2>
+      <div class="row">
+        <span class="grow muted">Download or restore a full BlueShield backup.</span>
+        <button type="button" class="btn" id="st-export">Export</button>
+        <button type="button" class="btn" id="st-import">Import</button>
+        <input type="file" id="st-file" accept="application/json" hidden>
+      </div>
+
+      <h2 class="section-title">Reset</h2>
+      <div class="row">
+        <span class="grow muted">Reload the learned tracker list or erase all BlueShield data.</span>
+        <button type="button" class="btn" id="st-reset-learned">Reset learned data</button>
+        <button type="button" class="btn danger" id="st-reset-all">Erase everything</button>
+      </div>
+    </section>
+
+    <!-- ============================= ABOUT ============================= -->
+    <section class="panel" data-panel="about">
+      <h1>About</h1>
+      <div class="about-head">
+        <img src="branding/icon-128.png" width="96" height="96" alt="BlueShield logo">
+        <div>
+          <h2>BlueShield</h2>
+          <p class="muted">Version <span id="about-version">–</span></p>
+          <p class="muted">Blocking engine <span id="about-blocking">–</span> · Automatic tracker protection <span id="about-privacy">–</span></p>
+        </div>
+      </div>
+
+      <h2 class="section-title">What BlueShield does</h2>
+      <ul class="bullets">
+        <li>Blocks ads, trackers and harmful sites with filter lists and custom rules.</li>
+        <li>Learns which third parties track you and blocks them automatically.</li>
+        <li>Keeps every setting and all learned data on your device, in your browser profile.</li>
+      </ul>
+
+      <h2 class="section-title">Details</h2>
+      <div class="row">
+        <span class="grow">Extension ID</span>
+        <code id="about-id">–</code>
+        <button type="button" class="btn" id="about-copy">Copy</button>
+      </div>
+      <div class="row">
+        <span class="grow">Licenses</span>
+        <span class="muted">Open-source license texts are bundled inside the extension package.</span>
+      </div>
+      <p class="muted small">
+        BlueShield is an independent build. It bundles open-source components that remain under
+        their original licenses; those notices are kept unmodified inside the extension.
+      </p>
+    </section>
+  </main>
+</div>
+
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+<script src="blueshield-settings.js"></script>
+</body>
+</html>

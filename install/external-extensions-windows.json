@@ -1,0 +1,15 @@
+{
+  "_comment": [
+    "External extension file for CHROMIUM builds (and Chrome for Testing) on Windows.",
+    "Chrome for Testing is a Google Chrome build and may ignore this file; use the",
+    "launch-dev-windows.bat script or an enterprise policy for Chrome proper.",
+    "Install path: C:\\Program Files\\Chromium\\Application\\<version>\\External Extensions\\",
+    "Replace VERSION and the CRX path with your own, then restart the browser."
+  ],
+  "extensions": [
+    {
+      "external_crx": "BlueShield-1.0.0.0.crx",
+      "external_version": "1.0.0"
+    }
+  ]
+}

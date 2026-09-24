@@ -1,0 +1,89 @@
+:root {
+  color-scheme: light;
+  --sky-50: #f0f9ff;
+  --sky-100: #e0f2fe;
+  --sky-200: #bae6fd;
+  --sky-300: #7dd3fc;
+  --sky-400: #38bdf8;
+  --sky-500: #0ea5e9;
+  --sky-600: #0284c7;
+  --sky-700: #0369a1;
+  --sky-800: #075985;
+  --ink: #0f2b3d;
+  --muted: #4a6b80;
+  --line: #cfe8f7;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: var(--sky-50);
+  color: var(--ink);
+}
+
+* { box-sizing: border-box; }
+body { width: 340px; margin: 0; }
+
+.shell {
+  padding: 16px;
+  background: linear-gradient(180deg, #f7fcff 0%, #e8f6ff 100%);
+}
+
+.header { display: flex; align-items: center; gap: 11px; }
+.header img { border-radius: 11px; box-shadow: 0 5px 14px rgb(3 105 161 / 30%); }
+h1 { margin: 0; font-size: 19px; letter-spacing: -.2px; color: var(--sky-800); }
+.header p { margin: 3px 0 0; color: var(--muted); font-size: 12px; word-break: break-all; }
+
+.stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 15px 0 12px; }
+.stat {
+  display: grid;
+  gap: 2px;
+  padding: 11px 12px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 6px 16px rgb(12 74 110 / 8%);
+}
+.stat-value { font-size: 18px; font-weight: 700; color: var(--sky-700); }
+.stat-label { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
+
+button {
+  font: inherit;
+  cursor: pointer;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+}
+button:focus-visible { outline: 3px solid rgb(56 189 248 / 55%); outline-offset: 1px; }
+
+.primary {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 14px;
+  font-weight: 650;
+  color: #fff;
+  background: linear-gradient(180deg, var(--sky-500), var(--sky-600));
+  border-color: var(--sky-600);
+  box-shadow: 0 8px 18px rgb(2 132 199 / 30%);
+}
+.primary:hover { background: linear-gradient(180deg, var(--sky-400), var(--sky-500)); }
+.primary[disabled] { opacity: .6; cursor: default; }
+
+.links { display: grid; gap: 4px; margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--line); }
+.links button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  background: transparent;
+  border: 0;
+  color: var(--sky-800);
+  font-size: 13px;
+  text-align: left;
+}
+.links button:hover { background: var(--sky-100); }
+.link-icon {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  background: var(--sky-100);
+  color: var(--sky-700);
+  font-size: 13px;
+}

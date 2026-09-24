@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="BlueShield shield">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7dd3fc"/>
+      <stop offset="0.5" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#0284c7"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <rect width="512" height="512" rx="112" fill="url(#sheen)"/>
+  <path d="M256 64 414 130v118c0 99-60 181-158 220-98-39-158-121-158-220V130Z" fill="#f0f9ff"/>
+  <path d="M256 106 374 156v90c0 74-44 136-118 169-74-33-118-95-118-169v-90Z" fill="#0c4a6e"/>
+  <path d="M170 258h58v22h-22v74h22v22h-58v-22h22v-74h-22Zm114 0h58v22h-22v74h22v22h-58v-22h23v-74h-23Z" fill="#e0f2fe"/>
+  <circle cx="256" cy="248" r="26" fill="#38bdf8"/>
+</svg>

@@ -1,0 +1,31 @@
+Windows Registry Editor Version 5.00
+
+; ===========================================================================
+;  BlueShield - force-install the extension on managed Windows machines.
+;
+;  Unlike "allow", this PUSHES the extension to every profile on the machine
+;  and Chrome re-downloads/reinstalls it automatically. It needs a URL that
+;  serves the CRX over http/https (a file:// path is rejected by Chrome).
+;
+;  1. Copy BlueShield-1.0.0.0.crx somewhere the machine can download, e.g.
+;       C:\inetpub\wwwroot\BlueShield-1.0.0.0.crx
+;     and serve it, e.g.
+;       cd C:\inetpub\wwwroot
+;       py -m http.server 8000
+;  2. Replace UPDATE_URL below with that http/https URL.
+;  3. Run this file as administrator, restart Chrome.
+;  4. Check chrome://policy: ExtensionInstallForcelist should show the entry.
+;
+;  The CRX is already signed with the key whose public key hashes to
+;  jbdmpgnpkidpmibioddiapfgklfncgcf, which is why the ID in the list matches.
+; ===========================================================================
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Google\Chrome\ExtensionInstallForcelist]
+"1"="jbdmpgnpkidpmibioddiapfgklfncgcf;http://YOUR-SERVER-HERE:8000/BlueShield-1.0.0.0.crx"
+
+; Keep the allow/allowlist policy if the machine also has install restrictions.
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Google\Chrome\ExtensionInstallBlocklist]
+"1"="jbdmpgnpkidpmibioddiapfgklfncgcf"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Google\Chrome\ExtensionSettings]
+"jbdmpgnpkidpmibioddiapfgklfncgcf"="{\"installation_mode\":\"force_installed\",\"update_url\":\"http://YOUR-SERVER-HERE:8000/BlueShield-1.0.0.0.crx\"}"

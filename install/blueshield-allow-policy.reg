@@ -1,0 +1,33 @@
+Windows Registry Editor Version 5.00
+
+; ===========================================================================
+;  BlueShield - allow the BlueShield extension in managed/enterprise Chrome.
+;
+;  Run this from an ELEVATED command prompt (or double-click as administrator),
+;  then completely restart Chrome and visit chrome://policy.
+;
+;  It does three things:
+;    1. unblocks the BlueShield extension ID,
+;    2. allows it explicitly, and
+;    3. blocks every OTHER extension that is not on the Web Store, so a
+;       machine-wide "ExtensionInstallBlocklist": "*" entry cannot keep
+;       disabling BlueShield.
+;
+;  If chrome://policy shows a policy from your organisation, it is applied at
+;  machine level and may win over this one - ask IT to remove BlueShield from
+;  ExtensionInstallBlocklist / add it to ExtensionInstallAllowlist.
+; ===========================================================================
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Google\Chrome\ExtensionInstallBlocklist]
+"1"="jbdmpgnpkidpmibioddiapfgklfncgcf"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Google\Chrome\ExtensionSettings]
+"jbdmpgnpkidpmibioddiapfgklfncgcf"="{\"installation_mode\":\"allowed\",\"update_url\":\"https://clients2.google.com/service/update2/crx\"}"
+"*"="{\"block_external_downloads\":true}"
+
+; If your organisation restricts installs to an allowlist, make sure the
+; extension ID is present there (enable the line below if chrome://policy shows
+; ExtensionInstallAllowlist without it).
+;
+; [HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Google\Chrome\ExtensionInstallAllowlist]
+; "1"="jbdmpgnpkidpmibioddiapfgklfncgcf"
