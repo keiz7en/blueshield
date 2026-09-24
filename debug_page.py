@@ -4,8 +4,8 @@ import json, os, subprocess, sys, tempfile, time, urllib.request
 from pathlib import Path
 import websocket
 
-ROOT = Path(__file__).resolve().parent
-STAGE = ROOT / "release" / "BlueShield-1.0.0.0"
+from project_paths import STAGE
+
 page_path = sys.argv[1]
 
 

@@ -4,8 +4,8 @@ import json, os, subprocess, tempfile, time, urllib.request
 from pathlib import Path
 import websocket
 
-ROOT = Path(__file__).resolve().parent
-STAGE = ROOT / "release" / "BlueShield-1.0.0.0"
+from project_paths import ROOT, STAGE
+
 OUT = ROOT / "release" / "screenshots"
 OUT.mkdir(exist_ok=True)
 

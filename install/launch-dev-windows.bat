@@ -7,12 +7,18 @@ REM  when the extension keeps being disabled. It uses a SEPARATE profile, so it
 REM  never touches your normal Chrome profile.
 REM
 REM  Usage:  launch-dev-windows.bat [path-to-unpacked-extension]
-REM  Default path is ..\release\BlueShield-1.0.0.0
+REM  With no argument it picks the newest release\BlueShield-* folder.
 REM ===========================================================================
-setlocal
+setlocal enabledelayedexpansion
 
-set "EXT=%~1"
-if "%EXT%"=="" set "EXT=%~dp0..\release\BlueShield-1.0.0.0"
+if not "%~1"=="" (
+  set "EXT=%~f1"
+) else (
+  set "EXT="
+  for /d %%D in ("%~dp0..\release\BlueShield-*") do (
+    if exist "%%D\manifest.json" set "EXT=%%~fD"
+  )
+)
 
 REM Prefer Chrome for Testing if it is present (no web-store / policy baggage),
 REM otherwise fall back to a normal Chrome install.
@@ -37,7 +43,7 @@ if not defined CHROME (
 if not exist "%EXT%\manifest.json" (
   echo [BlueShield] No unpacked extension at: %EXT%
   echo Pass the path as the first argument, for example:
-  echo   launch-dev-windows.bat C:\blueshield\BlueShield-1.0.0.0
+  echo   launch-dev-windows.bat C:\blueshield\BlueShield-1.0.1.0
   exit /b 1
 )
 

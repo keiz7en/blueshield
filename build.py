@@ -25,15 +25,18 @@ UBO_BUILD = UBO_REPO / "dist" / "build" / "uBOLite.chromium"
 PB_REPO = WORKSPACE / "privacybadger-mv3"
 PB_SRC = PB_REPO / "src"
 RELEASE = ROOT / "release"
-STAGE_NAME = "BlueShield-1.0.0.0"
+EXTENSION_NAME = "BlueShield"
+EXTENSION_VERSION = "1.0.1.0"
+
+# The staging directory and the two archives are always named from the product
+# name and version above, so bumping the version needs a single edit.
+STAGE_NAME = f"{EXTENSION_NAME}-{EXTENSION_VERSION}"
 STAGE = RELEASE / STAGE_NAME
 ZIP_PATH = RELEASE / f"{STAGE_NAME}.zip"
 CRX_PATH = RELEASE / f"{STAGE_NAME}.crx"
 KEY_DIR = ROOT / "keys"
 KEY_PATH = KEY_DIR / "blueshield-signing.pem"
 
-EXTENSION_NAME = "BlueShield"
-EXTENSION_VERSION = "1.0.0.0"
 SERVICE_WORKER = "blueshield-service-worker.js"
 MANAGED_SCHEMA = "blueshield-managed-schema.json"
 THEME_STYLESHEET = "blueshield-theme.css"

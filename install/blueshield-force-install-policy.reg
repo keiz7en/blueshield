@@ -7,8 +7,8 @@ Windows Registry Editor Version 5.00
 ;  and Chrome re-downloads/reinstalls it automatically. It needs a URL that
 ;  serves the CRX over http/https (a file:// path is rejected by Chrome).
 ;
-;  1. Copy BlueShield-1.0.0.0.crx somewhere the machine can download, e.g.
-;       C:\inetpub\wwwroot\BlueShield-1.0.0.0.crx
+;  1. Copy BlueShield-<version>.crx somewhere the machine can download, e.g.
+;       C:\inetpub\wwwroot\BlueShield-<version>.crx
 ;     and serve it, e.g.
 ;       cd C:\inetpub\wwwroot
 ;       py -m http.server 8000
@@ -21,11 +21,11 @@ Windows Registry Editor Version 5.00
 ; ===========================================================================
 
 [HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Google\Chrome\ExtensionInstallForcelist]
-"1"="jbdmpgnpkidpmibioddiapfgklfncgcf;http://YOUR-SERVER-HERE:8000/BlueShield-1.0.0.0.crx"
+"1"="jbdmpgnpkidpmibioddiapfgklfncgcf;http://YOUR-SERVER-HERE:8000/BlueShield-<version>.crx"
 
 ; Keep the allow/allowlist policy if the machine also has install restrictions.
 [HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Google\Chrome\ExtensionInstallBlocklist]
 "1"="jbdmpgnpkidpmibioddiapfgklfncgcf"
 
 [HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Google\Chrome\ExtensionSettings]
-"jbdmpgnpkidpmibioddiapfgklfncgcf"="{\"installation_mode\":\"force_installed\",\"update_url\":\"http://YOUR-SERVER-HERE:8000/BlueShield-1.0.0.0.crx\"}"
+"jbdmpgnpkidpmibioddiapfgklfncgcf"="{\"installation_mode\":\"force_installed\",\"update_url\":\"http://YOUR-SERVER-HERE:8000/BlueShield-<version>.crx\"}"

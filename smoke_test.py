@@ -19,8 +19,8 @@ from pathlib import Path
 
 import websocket
 
-ROOT = Path(__file__).resolve().parent
-STAGE = ROOT / "release" / "BlueShield-1.0.0.0"
+from project_paths import ROOT, STAGE, VERSION
+
 REPORT = ROOT / "release" / "smoke-test.json"
 LOG = ROOT / "release" / "chromium-smoke.log"
 EXPECTED_ID = "jbdmpgnpkidpmibioddiapfgklfncgcf"
@@ -673,7 +673,7 @@ def main() -> int:
                 raise AssertionError(f"Settings navigation mismatch: {settings_detail['tabs']}")
             if settings_detail["panels"] != expected_tabs:
                 raise AssertionError(f"Settings panels mismatch: {settings_detail['panels']}")
-            if settings_detail["version"] != "1.0.0.0":
+            if settings_detail["version"] != VERSION:
                 raise AssertionError(f"Settings show the wrong version: {settings_detail['version']}")
             for tab, detail in sections.items():
                 if detail.get("error") or not detail.get("active"):

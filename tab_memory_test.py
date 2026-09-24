@@ -26,8 +26,8 @@ from pathlib import Path
 
 import websocket
 
-ROOT = Path(__file__).resolve().parent
-STAGE = ROOT / "release" / "BlueShield-1.0.0.0"
+from project_paths import ROOT, STAGE
+
 REPORT = ROOT / "release" / "tab-memory.json"
 LOG = ROOT / "release" / "chromium-tabs.log"
 TABS = 12

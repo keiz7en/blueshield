@@ -57,9 +57,9 @@ cd ../blueshield
 
 ## Release artifacts
 
-- `release/BlueShield-1.0.0.0/` — tested unpacked extension
-- `release/BlueShield-1.0.0.0.zip` — upload/install ZIP, `manifest.json` at root
-- `release/BlueShield-1.0.0.0.crx` — CRX3 signed with the local development key
+- `release/BlueShield-<version>/` — tested unpacked extension
+- `release/BlueShield-<version>.zip` — upload/install ZIP, `manifest.json` at root
+- `release/BlueShield-<version>.crx` — CRX3 signed with the local development key
 - `release/blueshield-metadata.json` — versions, commits, ID, sizes, hashes
 - `release/SHA256SUMS` — ZIP and CRX checksums
 - `release/smoke-test.json` — Chromium runtime, blocking, storage and memory report
@@ -111,7 +111,7 @@ extension ID, and that no upstream brand name survives in any page or locale.
 
 `tab_memory_test.py` opens 12+ tabs, lets the tracker engine learn on each, then
 closes them all and checks that the extension returns to its baseline. Measured
-on the 1.0.0.0 build:
+on the 1.0.1.0 build:
 
 | Metric | Result |
 | --- | --- |

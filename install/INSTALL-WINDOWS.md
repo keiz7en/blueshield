@@ -28,7 +28,7 @@ upload and for managed deployment, not for double-click install.
 **Fix — load the unpacked folder instead:**
 
 * `chrome://extensions` → enable **Developer mode** → **Load unpacked** →
-  select `release\BlueShield-1.0.0.0` (the folder that contains
+  select `release\BlueShield-<version>` (the folder that contains
   `manifest.json`, *not* the `.zip`).
 
 The extension ID stays `jbdmpgnpkidpmibioddiapfgklfncgcf` in every case, so
@@ -43,7 +43,7 @@ default, and managed profiles can hide the Developer mode toggle.
 
 ```bat
 install\launch-dev-windows.bat
-install\launch-dev-windows.bat C:\path\to\BlueShield-1.0.0.0
+install\launch-dev-windows.bat C:\path\to\BlueShield-<version>
 ```
 
 It launches Chrome for Testing (preferred) or Chrome with:
@@ -111,7 +111,7 @@ A self-signed CRX is a *development* artifact: Chrome will never treat it as
 Web-Store authorised, so any Chrome installation that enforces store
 signatures will refuse it. The only routes that are genuinely "authorized":
 
-* upload `BlueShield-1.0.0.0.zip` to the **Chrome Web Store** (it can stay
+* upload `BlueShield-<version>.zip` to the **Chrome Web Store** (it can stay
   "unlisted" — still signed by Google, still installs without warnings);
 * **Edge Add-ons** for Microsoft Edge;
 * or managed deployment through the policies above, inside an organisation you
