@@ -1,3 +1,5 @@
 release/
 keys/
 *.pem
+__pycache__/
+*.pyc
