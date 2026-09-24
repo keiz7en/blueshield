@@ -668,12 +668,26 @@ def patch_pb_runtime(pb_root: Path) -> None:
         "        extensionPath: '/" + PB_BASE + "/' + surrogate_path.replace(/^\\/+/, '')",
     )
 
-    i18n = pb_root / "lib" / "i18n.js"
+    # Per-tab state (learned trackers, temporary allow lists and the tab's own
+    # session rules) is held for 20 seconds after a tab closes. Nothing needs it
+    # once the tab is gone, and a long tail makes the worker hold data for every
+    # recently closed tab, so release it as soon as the event queue has drained.
+    webrequest = pb_root / "js" / "webrequest.js"
     replace_once(
-        i18n,
-        'ON_POPUP = (document.location.pathname == "/skin/popup.html")',
-        'ON_POPUP = document.location.pathname.endsWith("/skin/popup.html")',
+        webrequest,
+        "function onTabRemoved(tab_id) {\n"
+        "  setTimeout(function () {\n"
+        "    forgetTab(tab_id);\n"
+        "    dnrUtils.removeTabSessionRules(tab_id);\n"
+        "  }, utils.oneSecond() * 20);",
+        "function onTabRemoved(tab_id) {\n"
+        "  setTimeout(function () {\n"
+        "    forgetTab(tab_id);\n"
+        "    dnrUtils.removeTabSessionRules(tab_id);\n"
+        "  }, utils.oneSecond() * 2);",
     )
+
+    i18n = pb_root / "lib" / "i18n.js"
     replace_once(
         i18n,
         'document.location.pathname == "/skin/options.html"',
