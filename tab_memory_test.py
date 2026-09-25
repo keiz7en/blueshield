@@ -80,7 +80,13 @@ class CDP:
             raise RuntimeError(details.get("text", "failed") + ": " + json.dumps(details))
         return result.get("result", {}).get("value")
 
-    def heap(self):
+    def heap(self, collect=True):
+        # usedSize is only comparable once the collector has run, so force it.
+        if collect:
+            try:
+                self.send("HeapProfiler.collectGarbage")
+            except Exception:
+                pass
         return int(self.send("Runtime.getHeapUsage").get("usedSize", 0))
 
     def close(self):
@@ -209,14 +215,36 @@ def main() -> int:
                 if ready:
                     break
                 time.sleep(0.5)
+
+            # The learned rule set is installed in slices, so initialisation can
+            # still be in flight when the engine reports itself ready. Wait for
+            # the install to settle, otherwise its memory would be misattributed
+            # to the tabs opened below.
+            previous = -1
+            settle_deadline = time.monotonic() + 90
+            while time.monotonic() < settle_deadline:
+                added = worker.evaluate(
+                    "(globalThis.__blueshieldTrackerDnrStats || {}).added || 0")
+                if added >= 4900 and added == previous:
+                    break
+                previous = added
+                time.sleep(1.5)
             time.sleep(3)
 
             baseline = worker.evaluate(STATE)
             baseline["workerHeapBytes"] = worker.heap()
             report["baseline_one_tab"] = baseline
 
+            # Sample the worker heap as tabs accumulate, to separate a steady
+            # per-tab cost from a one-off step (for example late storage writes).
+            growth = []
             opened = []
             for index in range(TABS):
+                if index % 3 == 0:
+                    growth.append({
+                        "tabs": index,
+                        "heapMB": round(worker.heap() / 1048576, 2),
+                    })
                 url = f"http://127.0.0.1:{port}/tab{index}.html"
                 target_id = browser.send("Target.createTarget", {"url": url})["targetId"]
                 opened.append(target_id)
@@ -231,6 +259,11 @@ def main() -> int:
 
             # Let every tab finish reporting its trackers.
             time.sleep(6)
+            growth.append({
+                "tabs": TABS,
+                "heapMB": round(worker.heap() / 1048576, 2),
+            })
+            report["heapGrowth"] = growth
             loaded = worker.evaluate(STATE)
             loaded["workerHeapBytes"] = worker.heap()
             report["with_tabs"] = loaded

@@ -26,7 +26,7 @@ PB_REPO = WORKSPACE / "privacybadger-mv3"
 PB_SRC = PB_REPO / "src"
 RELEASE = ROOT / "release"
 EXTENSION_NAME = "BlueShield"
-EXTENSION_VERSION = "1.0.1.0"
+EXTENSION_VERSION = "1.0.2.0"
 
 # The staging directory and the two archives are always named from the product
 # name and version above, so bumping the version needs a single edit.
@@ -189,28 +189,145 @@ function __restoreStorageResult(result) {{
     return out;
 }}
 
+// Rough payload size without allocating a copy of the value. Serialising a
+// multi-megabyte store just to measure it produced megabytes of garbage on every
+// write, which showed up as the worker growing while browsing.
+function __approxBytes(value) {{
+    if (value === null || value === undefined) {{
+        return 8;
+    }}
+    if (typeof value !== 'object') {{
+        return 8;
+    }}
+    if (Array.isArray(value)) {{
+        return value.length * 64;
+    }}
+    let entries = 0;
+    for (const key in value) {{
+        if (Object.prototype.hasOwnProperty.call(value, key)) {{
+            entries += 1;
+        }}
+    }}
+    return entries * 160;
+}}
+
+function __sameValue(a, b, size) {{
+    // Unchanged stores are almost always the same object, so the cheap identity
+    // check handles them; large values skip the deep compare entirely.
+    if (a === b) {{
+        return true;
+    }}
+    if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) {{
+        return false;
+    }}
+    if (size > 100000) {{
+        return false;
+    }}
+    try {{
+        return JSON.stringify(a) === JSON.stringify(b);
+    }} catch (error) {{
+        return false;
+    }}
+}}
+
 function __makeStorageArea(nativeArea, prefixKeys = true) {{
+    // Writing a large store to extension storage takes hundreds of milliseconds
+    // and happens in a burst while the worker initialises. Identical values are
+    // dropped, and the rest are merged into one write per key per tick, which
+    // turns a storm of writes into a handful without changing what is stored.
+    const pending = new Map();
+    const pendingSizes = new Map();
+    let pendingBytes = 0;
+    let flushTimer;
+
+    const flush = () => {{
+        flushTimer = undefined;
+        if (pending.size === 0) {{
+            return Promise.resolve();
+        }}
+        const batch = Object.assign({{}}, ...pending.values());
+        const bytes = pendingBytes;
+        pending.clear();
+        pendingSizes.clear();
+        pendingBytes = 0;
+        return __timed(__perf.storageSet, () => nativeArea.set(batch), bytes);
+    }};
+
+    const queue = (items) => {{
+        for (const [key, value] of Object.entries(items || {{}})) {{
+            const size = __approxBytes(value);
+            const previous = pending.get(key);
+            if (previous && __sameValue(previous[key], value, size)) {{
+                continue;
+            }}
+            if (previous) {{
+                pendingBytes -= pendingSizes.get(key) || 0;
+            }}
+            pendingSizes.set(key, size);
+            pendingBytes += size;
+            pending.set(key, {{ [key]: value }});
+        }}
+        if (flushTimer === undefined) {{
+            // A large write costs several hundred milliseconds. While the rule
+            // set is still being installed, or just after, that cost lands in
+            // the same window as page loading, which is what the user feels as a
+            // stall. Small writes are never delayed.
+            let delay = 0;
+            if (pendingBytes > 200000) {{
+                const armedAt = globalThis.__blueshieldRulesArmedAt;
+                const installing = armedAt === undefined;
+                const justArmed = armedAt !== undefined
+                    && Date.now() - armedAt < __STORAGE_GRACE_MS;
+                if (installing || justArmed) {{
+                    delay = 2500;
+                }}
+            }}
+            flushTimer = setTimeout(flush, delay);
+        }}
+    }};
+
     return new Proxy(nativeArea, {{
         get(target, property) {{
+            if (prefixKeys && property === "set") {{
+                return (items, callback) => {{
+                    const prefixed = __prefixStorageKeys(items);
+                    queue(prefixed);
+                    if (typeof callback === "function") {{
+                        flush().then(() => callback(), () => callback());
+                        return undefined;
+                    }}
+                    return flush();
+                }};
+            }}
             if (prefixKeys && property === "get") {{
                 return (keys, callback) => {{
-                    const promise = Promise.resolve(target.get(
+                    const promise = __timed(__perf.storageGet, () => target.get(
                         __prefixStorageKeys(keys)
                     )).then(__restoreStorageResult);
                     return __callbackify(promise, callback);
                 }};
             }}
-            if (prefixKeys && property === "set") {{
-                return (items, callback) => __callbackify(
-                    Promise.resolve(target.set(__prefixStorageKeys(items))),
-                    callback
-                );
-            }}
             if (prefixKeys && property === "remove") {{
-                return (keys, callback) => __callbackify(
-                    Promise.resolve(target.remove(__prefixStorageKeys(keys))),
-                    callback
-                );
+                return (keys, callback) => {{
+                    for (const key of [].concat(__prefixStorageKeys(keys) || [])) {{
+                        pendingBytes -= pendingSizes.get(key) || 0;
+                        pendingSizes.delete(key);
+                        pending.delete(key);
+                    }}
+                    return __callbackify(
+                        Promise.resolve(target.remove(__prefixStorageKeys(keys))),
+                        callback
+                    );
+                }};
+            }}
+            if (prefixKeys && property === "clear") {{
+                return (callback) => {{
+                    pending.clear();
+                    pendingSizes.clear();
+                    pendingBytes = 0;
+                    return __callbackify(
+                        Promise.resolve(target.clear()), callback);
+                }};
             }}
             if (prefixKeys && property === "getBytesInUse") {{
                 return (keys, callback) => __callbackify(
@@ -235,11 +352,18 @@ function __makeStorageArea(nativeArea, prefixKeys = true) {{
     }});
 }}
 
+// Content scripts get a restricted `chrome` object: several namespaces simply do
+// not exist there. Proxying a missing namespace throws "Cannot create proxy with
+// a non-object as target", which killed the tracker engine's page scripts
+// outright, so an absent namespace is stood in for by an empty object.
+const __namespace = (value) => value ?? {{}};
+const __chromeStorage = __namespace(__nativeChrome.storage);
+
 const __storage = {{
-    local: __makeStorageArea(__nativeChrome.storage.local),
-    sync: __makeStorageArea(__nativeChrome.storage.sync),
-    session: __makeStorageArea(__nativeChrome.storage.session),
-    managed: __makeStorageArea(__nativeChrome.storage.managed, false),
+    local: __makeStorageArea(__namespace(__chromeStorage.local)),
+    sync: __makeStorageArea(__namespace(__chromeStorage.sync)),
+    session: __makeStorageArea(__namespace(__chromeStorage.session)),
+    managed: __makeStorageArea(__namespace(__chromeStorage.managed), false),
 }};
 
 function __makeOnMessageEvent() {{
@@ -296,7 +420,7 @@ const __runtime = new Proxy(__nativeRuntime, {{
     }}
 }});
 
-const __tabs = new Proxy(__nativeChrome.tabs, {{
+const __tabs = new Proxy(__namespace(__nativeChrome.tabs), {{
     get(target, property) {{
         if (property === "sendMessage") {{
             return (tabId, message, ...args) => target.sendMessage(
@@ -331,11 +455,56 @@ function __scopeScriptPaths(scripts) {{
     }});
 }}
 
-const __scripting = new Proxy(__nativeChrome.scripting, {{
+// The tracker engine observes every request in every tab through a
+// non-blocking webRequest listener. That is a hot path, so its cost is timed
+// here: if it ever becomes expensive, it shows up in the report instead of as
+// mysterious browser lag.
+function __wrapWebRequestEvent(event) {{
+    if (!event) {{ return event; }}
+    return new Proxy(event, {{
+        get(inner, property) {{
+            if (property === "addListener") {{
+                return (listener, ...rest) => inner.addListener(
+                    (...args) => {{
+                        const started = __now();
+                        try {{
+                            return listener(...args);
+                        }} finally {{
+                            const ms = __now() - started;
+                            __perf.requests.count += 1;
+                            __perf.requests.ms += ms;
+                            if (ms > __perf.requests.maxMs) {{
+                                __perf.requests.maxMs = ms;
+                            }}
+                        }}
+                    }},
+                    ...rest
+                );
+            }}
+            const value = Reflect.get(inner, property, inner);
+            return typeof value === "function" ? __bind(inner, value) : value;
+        }},
+    }});
+}}
+
+const __webRequest = new Proxy(__namespace(__nativeChrome.webRequest), {{
+    get(target, property) {{
+        if (typeof property === "string" && property.startsWith("on")) {{
+            return __wrapWebRequestEvent(target[property]);
+        }}
+        const value = Reflect.get(target, property, target);
+        return typeof value === "function" ? __bind(target, value) : value;
+    }},
+}});
+
+const __scripting = new Proxy(__namespace(__nativeChrome.scripting), {{
     get(target, property) {{
         if (property === "registerContentScripts") {{
-            return (scripts, ...args) => target.registerContentScripts(
-                __scopeScriptPaths(scripts), ...args
+            return (scripts, ...args) => __timed(
+                __perf.scripting,
+                () => target.registerContentScripts(
+                    __scopeScriptPaths(scripts), ...args
+                ),
             );
         }}
         if (property === "unregisterContentScripts") {{
@@ -348,7 +517,10 @@ const __scripting = new Proxy(__nativeChrome.scripting, {{
                         )
                     }};
                 }}
-                return target.unregisterContentScripts(options, ...args);
+                return __timed(
+                    __perf.scripting,
+                    () => target.unregisterContentScripts(options, ...args),
+                );
             }};
         }}
         if (property === "executeScript") {{
@@ -388,7 +560,75 @@ const __pbDnrStats = globalThis.__blueshieldTrackerDnrStats ||= {{
     skipped: 0,
 }};
 
+// ---------------------------------------------------------------------------
+// Performance counters
+//
+// The worker is shared by both engines, so any stall the user feels has to be
+// attributable. Every DNR write, rule read, storage write and request callback
+// is timed here, and long tasks are recorded, so `perf_test.py` can prove which
+// subsystem is responsible instead of guessing.
+// ---------------------------------------------------------------------------
+const __perf = globalThis.__blueshieldPerf ||= {{
+    dnrUpdate: {{ calls: 0, rules: 0, ms: 0, maxMs: 0 }},
+    dnrNative: {{ calls: 0, rules: 0, ms: 0, maxMs: 0 }},
+    dnrRead: {{ calls: 0, rules: 0, ms: 0, maxMs: 0 }},
+    storageSet: {{ calls: 0, rules: 0, ms: 0, maxMs: 0 }},
+    storageGet: {{ calls: 0, rules: 0, ms: 0, maxMs: 0 }},
+    scripting: {{ calls: 0, rules: 0, ms: 0, maxMs: 0 }},
+    requests: {{ count: 0, rules: 0, ms: 0, maxMs: 0 }},
+    longTasks: [],
+}};
+
+const __now = () => performance.now();
+// A large write is held back for this long after the rules finish installing.
+const __STORAGE_GRACE_MS = 2500;
+
+function __record(bucket, ms, size) {{
+    if (size) {{ bucket.rules += size; }}
+    bucket.calls += 1;
+    bucket.ms += ms;
+    if (ms > bucket.maxMs) {{ bucket.maxMs = ms; }}
+}}
+
+async function __timed(bucket, work, size) {{
+    const started = __now();
+    try {{
+        return await work();
+    }} finally {{
+        __record(bucket, __now() - started, size);
+    }}
+}}
+
+try {{
+    if (PerformanceObserver.supportedEntryTypes?.includes('longtask') !== true) {{
+        throw new Error('longtask unsupported');
+    }}
+    new PerformanceObserver((list) => {{
+        for (const entry of list.getEntries()) {{
+            if (entry.duration < 150) {{ continue; }}
+            __perf.longTasks.push({{
+                at: Math.round(entry.startTime),
+                ms: Math.round(entry.duration),
+                name: entry.name,
+            }});
+            if (__perf.longTasks.length > 40) {{ __perf.longTasks.shift(); }}
+        }}
+    }}).observe({{ entryTypes: ['longtask'] }});
+}} catch (error) {{
+    // Long-task observation is a diagnostic aid only.
+}}
+
 const __RETRY_DELAYS = [0, 200, 600, 1500, 3000];
+
+// Chromium applies a dynamic-rule update synchronously on the browser side, so
+// one call carrying several thousand rules blocks the browser for over a
+// second: the user sees the tab stop and restart. Rule sets are therefore
+// always installed in slices, with a yield between them, so the browser can
+// keep painting and loading between batches. A slice that is rejected is split
+// further, down to single rules.
+const __RULE_CHUNK_SIZE = 200;
+
+const __yieldToBrowser = () => new Promise(resolve => setTimeout(resolve, 0));
 
 const __sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -412,7 +652,11 @@ async function __addRuleWithRetry(target, method, rule) {{
             __pbDnrStats.retried += 1;
         }}
         try {{
-            await target[method]({{ addRules: [ rule ] }});
+            await __timed(
+                __perf.dnrNative,
+                () => target[method]({{ addRules: [ rule ] }}),
+                1,
+            );
             __pbDnrStats.added += 1;
             return true;
         }} catch(error) {{
@@ -432,38 +676,54 @@ async function __updateRulesCompat(target, method, options, predicate) {{
         ? options.removeRuleIds : [];
     const addRules = Array.isArray(options.addRules) ? options.addRules : [];
     if (removeRuleIds.length !== 0) {{
-        await target[method]({{ removeRuleIds }});
+        await __timed(
+            __perf.dnrNative,
+            () => target[method]({{ removeRuleIds }}),
+            removeRuleIds.length,
+        );
         __pbDnrStats.removed += removeRuleIds.length;
     }}
 
-    const chunkSize = 500;
-    for (let offset = 0; offset < addRules.length; offset += chunkSize) {{
-        const chunk = addRules.slice(offset, offset + chunkSize);
+    const total = addRules.length;
+    for (let offset = 0; offset < total; offset += __RULE_CHUNK_SIZE) {{
+        const chunk = addRules.slice(offset, offset + __RULE_CHUNK_SIZE);
         try {{
-            await target[method]({{ addRules: chunk }});
+            await __timed(
+                __perf.dnrNative,
+                () => target[method]({{ addRules: chunk }}),
+                chunk.length,
+            );
             __pbDnrStats.added += chunk.length;
         }} catch(error) {{
             if (chunk.length === 1) {{
                 await __addRuleWithRetry(target, method, chunk[0]);
-                continue;
+            }} else {{
+                const midpoint = Math.ceil(chunk.length / 2);
+                await __updateRulesCompat(target, method,
+                    {{ addRules: chunk.slice(0, midpoint) }}, () => true);
+                await __updateRulesCompat(target, method,
+                    {{ addRules: chunk.slice(midpoint) }}, () => true);
             }}
-            const midpoint = Math.ceil(chunk.length / 2);
-            await __updateRulesCompat(target, method,
-                {{ addRules: chunk.slice(0, midpoint) }}, () => true);
-            await __updateRulesCompat(target, method,
-                {{ addRules: chunk.slice(midpoint) }}, () => true);
         }}
+        if (__pbDnrStats.added > 4000 && globalThis.__blueshieldRulesArmedAt === undefined) {{
+            globalThis.__blueshieldRulesArmedAt = Date.now();
+        }}
+        if (offset + chunk.length < total) {{
+            await __yieldToBrowser();
+        }}
+    }}
+    if (total > 0 && globalThis.__blueshieldRulesArmedAt === undefined) {{
+        globalThis.__blueshieldRulesArmedAt = Date.now();
     }}
 }}
 
-const __dnr = new Proxy(__nativeChrome.declarativeNetRequest, {{
+const __dnr = new Proxy(__namespace(__nativeChrome.declarativeNetRequest), {{
     get(target, property) {{
         if (property === "getDynamicRules") {{
             return (...args) => {{
                 const callback = args.at(-1);
-                const promise = Promise.resolve(target.getDynamicRules()).then(
-                    rules => rules.filter(__isDynamicPrivacyBadgerRule)
-                );
+                const promise = __timed(__perf.dnrRead, () => target.getDynamicRules())
+                    .then(rules => rules.filter(__isDynamicPrivacyBadgerRule));
                 return typeof callback === "function"
                     ? __callbackify(promise, callback)
                     : promise;
@@ -472,9 +732,8 @@ const __dnr = new Proxy(__nativeChrome.declarativeNetRequest, {{
         if (property === "getSessionRules") {{
             return (...args) => {{
                 const callback = args.at(-1);
-                const promise = Promise.resolve(target.getSessionRules()).then(
-                    rules => rules.filter(__isSessionPrivacyBadgerRule)
-                );
+                const promise = __timed(__perf.dnrRead, () => target.getSessionRules())
+                    .then(rules => rules.filter(__isSessionPrivacyBadgerRule));
                 return typeof callback === "function"
                     ? __callbackify(promise, callback)
                     : promise;
@@ -483,9 +742,15 @@ const __dnr = new Proxy(__nativeChrome.declarativeNetRequest, {{
         if (property === "updateDynamicRules") {{
             return (options, ...args) => {{
                 const callback = args.at(-1);
-                const promise = __updateRulesCompat(
-                    target, "updateDynamicRules", options,
-                    __isDynamicPrivacyBadgerRule
+                const touched = (Array.isArray(options?.addRules) ? options.addRules.length : 0)
+                    + (Array.isArray(options?.removeRuleIds) ? options.removeRuleIds.length : 0);
+                const promise = __timed(
+                    __perf.dnrUpdate,
+                    () => __updateRulesCompat(
+                        target, "updateDynamicRules", options,
+                        __isDynamicPrivacyBadgerRule
+                    ),
+                    touched,
                 );
                 return typeof callback === "function"
                     ? __callbackify(promise, callback)
@@ -495,9 +760,15 @@ const __dnr = new Proxy(__nativeChrome.declarativeNetRequest, {{
         if (property === "updateSessionRules") {{
             return (options, ...args) => {{
                 const callback = args.at(-1);
-                const promise = __updateRulesCompat(
-                    target, "updateSessionRules", options,
-                    __isSessionPrivacyBadgerRule
+                const touched = (Array.isArray(options?.addRules) ? options.addRules.length : 0)
+                    + (Array.isArray(options?.removeRuleIds) ? options.removeRuleIds.length : 0);
+                const promise = __timed(
+                    __perf.dnrUpdate,
+                    () => __updateRulesCompat(
+                        target, "updateSessionRules", options,
+                        __isSessionPrivacyBadgerRule
+                    ),
+                    touched,
                 );
                 return typeof callback === "function"
                     ? __callbackify(promise, callback)
@@ -509,7 +780,7 @@ const __dnr = new Proxy(__nativeChrome.declarativeNetRequest, {{
     }}
 }});
 
-const __i18n = new Proxy(__nativeChrome.i18n, {{
+const __i18n = new Proxy(__namespace(__nativeChrome.i18n), {{
     get(target, property) {{
         if (property === "getMessage") {{
             return (key, substitutions) => {{
@@ -552,6 +823,7 @@ const chrome = new Proxy(__nativeChrome, {{
         if (property === "storage") {{ return __storage; }}
         if (property === "tabs") {{ return __tabs; }}
         if (property === "scripting") {{ return __scripting; }}
+        if (property === "webRequest") {{ return __webRequest; }}
         if (property === "declarativeNetRequest") {{ return __dnr; }}
         if (property === "i18n") {{ return __i18n; }}
         if (property === "action") {{ return __makeActionProxy(target.action); }}
@@ -1535,6 +1807,26 @@ def patch_ublock(stage: Path) -> None:
     )
 
     scripting_manager = stage / "js" / "scripting-manager.js"
+    mode_manager = stage / "js" / "mode-manager.js"
+    replace_once(
+        mode_manager,
+        "export const defaultFilteringModes = {\n"
+        "    none: [],\n"
+        "    basic: [],\n"
+        "    optimal: [ 'all-urls' ],\n"
+        "    complete: [],\n"
+        "};",
+        "export const defaultFilteringModes = {\n"
+        "    none: [],\n"
+        "    basic: [],\n"
+        "    optimal: [],\n"
+        "    // Cosmetic element hiding is applied on every site, matching full\n"
+        "    // uBlock Origin, so ad placeholders are hidden rather than just\n"
+        "    // their requests being blocked.\n"
+        "    complete: [ 'all-urls' ],\n"
+        "};",
+    )
+
     replace_once(
         scripting_manager,
         "    ubolLog(`Unregistered all content (css/js)`);\n"
@@ -1704,6 +1996,53 @@ def patch_ublock(stage: Path) -> None:
     )
 
 
+TELEMETRY_RULESET_ID = "blueshield-telemetry"
+TELEMETRY_RULE_ID_BASE = 300_000_000
+
+# Endpoints that the public AdBlockTest dataset checks but that none of the
+# enabled filter lists cover: device-maker telemetry (Apple, Oppo, Realme),
+# an ad-tech exchange host, and one regional logging host. They are pure
+# telemetry, never page content, so blocking them is safe. Measured with
+# coverage_test.py against the same dataset.
+TELEMETRY_HOSTS = [
+    "adtech.yahooinc.com",
+    "books-analytics-events.apple.com",
+    "weather-analytics-events.apple.com",
+    "notes-analytics-events.apple.com",
+    "adx.ads.oppomobile.com",
+    "ck.ads.oppomobile.com",
+    "data.ads.oppomobile.com",
+    "iot-eu-logser.realme.com",
+    "iot-logser.realme.com",
+    "bdapi-ads.realmemobile.com",
+    "bdapi-in-ads.realmemobile.com",
+    "log.byteoversea.com",
+]
+
+
+def add_telemetry_ruleset(stage: Path) -> dict:
+    """Write the small supplemental telemetry ruleset and describe it for the UI."""
+    rules = [
+        {
+            "id": TELEMETRY_RULE_ID_BASE + index,
+            "priority": 100,
+            "action": {"type": "block"},
+            "condition": {"urlFilter": f"||{host}^"},
+        }
+        for index, host in enumerate(TELEMETRY_HOSTS, start=1)
+    ]
+    write_json(stage / "rulesets" / "blueshield-telemetry.json", rules)
+
+    # Deliberately no entry in ruleset-details.json: that file drives cosmetic
+    # and scriptlet registration, which would look for scripting files that this
+    # network-only ruleset does not have and then fail as a whole.
+    return {
+        "id": TELEMETRY_RULESET_ID,
+        "enabled": True,
+        "path": f"rulesets/{TELEMETRY_RULESET_ID}.json",
+    }
+
+
 def build_manifest(
     ubo_manifest: dict,
     pb_manifest: dict,
@@ -1775,6 +2114,7 @@ def build_manifest(
         copied = json.loads(json.dumps(entry))
         copied["path"] = f"{PB_BASE}/{copied['path'].lstrip('/')}"
         rulesets.append(copied)
+    rulesets.append(add_telemetry_ruleset(STAGE))
     manifest["declarative_net_request"] = {"rule_resources": rulesets}
     manifest["storage"] = {"managed_schema": managed_schema}
 

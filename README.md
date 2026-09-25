@@ -38,6 +38,9 @@ make mv3-chromium
 cd ../blueshield
 ./build.py
 ./smoke_test.py
+python3 tab_memory_test.py
+python3 perf_test.py
+python3 coverage_test.py
 ```
 
 `build.py` leaves both upstream repositories unchanged. It:
@@ -53,7 +56,28 @@ cd ../blueshield
 6. retries tracker rules that lose a startup race for the shared quota, and
    reports permanently invalid ones instead of stalling;
 7. rebrands every page and localized string, and applies the light-blue theme;
-8. merges managed-policy schemas and licences, then builds ZIP, CRX3 and reports.
+8. adds the supplemental telemetry ruleset (see *Coverage* below);
+9. merges managed-policy schemas and licences, then builds ZIP, CRX3 and reports.
+
+### Why the browser used to stall for a second or two
+
+Profiling (`perf_test.py`) showed the stall was one single
+`declarativeNetRequest.updateDynamicRules` call: Chromium applies a rule update
+synchronously, so installing the ~5,000 learned tracker rules in one call blocked
+the browser for **1,695 ms** at worker start-up. Three changes removed it:
+
+- rule sets are installed in slices of 200 with a yield between them, so the
+  longest single browser-side call is now **~283 ms** and the browser keeps
+  painting and loading between batches;
+- large storage writes are coalesced per tick and held back while the rule set is
+  still being installed, instead of competing with it;
+- payload sizes are estimated without serialising the value, which removed the
+  megabytes of garbage the worker used to produce on every write.
+
+A rejected slice is still bisected down to a single rule, so a bad rule can never
+stall the install. Warm worker starts (after Chrome parks an idle service worker)
+perform **no** rule work at all, and ordinary browsing performs no rule writes
+and no long tasks.
 
 ## Release artifacts
 
@@ -74,11 +98,12 @@ distribution upload the ZIP through the Chrome Web Store instead.
 The extension runs a **single** service worker — there is no background page,
 no offscreen document kept alive, and no polling loop. The settings page is only
 loaded when opened and is discarded when closed. Measured in Chromium 153 by
-`smoke_test.py`:
+`tab_memory_test.py` (heap sampled after a forced collection, so the numbers are
+comparable):
 
 | Context | Used JS heap |
 | --- | --- |
-| Service worker | ~31 MB |
+| Service worker | ~14 MB |
 | Settings page | ~19 MB |
 | Blocking dashboard | ~10 MB |
 | Toolbar popup | ~7 MB |
@@ -107,16 +132,39 @@ extension ID, and that no upstream brand name survives in any page or locale.
   upstream wording and no console errors;
 - the unified settings page opens all seven sections and loads live data.
 
+## Blocking coverage
+
+`coverage_test.py` measures blocking against the host list used by the public
+[TurtleCute AdBlockTest](https://github.com/Turtlecute33/adblocktest) dataset
+(ads, analytics, error reporting, social trackers, mixed and OEM telemetry).
+Every host is requested from a real page and judged from the network log, so a
+DNS failure can never be mistaken for a block, and anything unconfirmed is
+retried in a fresh document before it is reported as a gap.
+
+| Measurement | Result |
+| --- | --- |
+| Dataset hosts blocked | **128 / 128 (100%)** |
+| Cosmetic element hiding (selectors taken from the shipped lists) | **pass** — ad elements hidden, page content untouched |
+
+The last twelve hosts (Apple, Oppo and Realme device telemetry, one ad-tech
+exchange host, one regional logging host) were covered by none of the enabled
+filter lists and are blocked by the supplemental `blueshield-telemetry` ruleset,
+which the build generates and registers as a network-only static ruleset.
+
+Cosmetic (element hiding) filters are applied on **every** site by default, as
+full uBlock Origin and AdGuard do. Upstream Lite limits them to sites the user
+explicitly puts into "complete" mode, which left most ad placeholders visible.
+The filtering level remains adjustable in the unified settings page.
+
 ## Per-tab cost and background tabs
 
 `tab_memory_test.py` opens 12+ tabs, lets the tracker engine learn on each, then
-closes them all and checks that the extension returns to its baseline. Measured
-on the 1.0.1.0 build:
+closes them all and checks that the extension returns to its baseline:
 
 | Metric | Result |
 | --- | --- |
-| Service-worker heap per open tab | **~23 KB** (29.6 MB → 29.9 MB over 13 tabs) |
-| Tracker data per open tab | **~185 bytes** (2.4 KB for 12 tabs) |
+| Service-worker heap per open tab | **~27 KB** (14.05 MB → 14.37 MB over 12 tabs) |
+| Tracker data per open tab | **~230 bytes** |
 | Per-tab DNR rules | **0** — blocking is global, not per tab |
 | Rules or storage left behind after closing every tab | **none** (tracker tab entries 12 → 0, rule counts unchanged) |
 | Re-activating a background tab | **~1 ms** to script round-trip, fully interactive |
@@ -156,3 +204,9 @@ cover all three cases.
   page (visibility, body display, text length, images, init flags).
 - `tab_memory_test.py` measures per-tab memory, re-activation latency and
   post-close cleanup; it fails if state accumulates per tab.
+- `perf_test.py` profiles the shared worker under a real browsing load and
+  reports rule-install cost, storage writes, per-request callbacks and long tasks.
+- `coverage_test.py` measures blocking coverage and cosmetic hiding against the
+  public AdBlockTest dataset; it exits non-zero on any gap.
+- `adblocktest.py` loads the live public test site and stores its verdict in
+  `release/adblocktest.json` for side-by-side comparison.
