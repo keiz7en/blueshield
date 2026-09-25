@@ -187,6 +187,29 @@ When such a tab does reload, it is protected from the very first request:
 blocking is declarative (DNR), so it is applied before requests leave the
 browser rather than by scripts that have to boot first.
 
+## "Blocked script execution in 'about:blank' … sandboxed"
+
+This console message is written by **Chrome, not by BlueShield**. It appears when
+a page puts a frame in a sandbox without `allow-scripts` (YouTube does this for
+several of its frames). Chrome then refuses to run *any* script in that frame —
+the page's own scripts included — and names whichever script it declined, which
+is why the stack trace points at a BlueShield file. Nothing failed: our script
+simply is not allowed to run there.
+
+Protection in such a frame is unaffected. Network blocking is declarative, so it
+is enforced by the browser before the request leaves it, and cosmetic filtering
+still applies in every frame the page allows scripts in.
+
+It is also unavoidable for any blocker that filters inside frames: ad and tracker
+content lives in iframes, so the content scripts are registered for all frames
+and Chrome logs the refusal for each sandboxed one. Measured on a page with two
+sandboxed frames: dropping the `about:blank`/`matchOriginAsFallback` script
+targets removes 6 of the 9 messages, and the remaining 3 come from the all-frame
+cosmetic filtering that hides ads in those very frames. `sandbox_frames_test.py`
+reproduces the situation and checks that blocking and cosmetic filtering keep
+working. Upstream uBlock Origin Lite, AdGuard and the tracker engine all register
+their scripts the same way.
+
 ## Installing on Windows
 
 See `install/INSTALL-WINDOWS.md`. In short: Chrome on Windows never installs a
@@ -210,3 +233,6 @@ cover all three cases.
   public AdBlockTest dataset; it exits non-zero on any gap.
 - `adblocktest.py` loads the live public test site and stores its verdict in
   `release/adblocktest.json` for side-by-side comparison.
+- `sandbox_frames_test.py` builds pages with sandboxed and `about:blank` frames,
+  records Chrome's script refusals and confirms that blocking and cosmetic
+  filtering still work inside them.
