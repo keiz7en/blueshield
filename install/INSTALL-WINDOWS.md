@@ -31,8 +31,9 @@ upload and for managed deployment, not for double-click install.
   select `release\BlueShield-<version>` (the folder that contains
   `manifest.json`, *not* the `.zip`).
 
-The extension ID stays `jbdmpgnpkidpmibioddiapfgklfncgcf` in every case, so
-settings and stored data are preserved across reloads.
+The extension ID (`iknhlankjpcfkhdgnopkhbpdpillgokc` since 1.0.3) stays the
+same across reloads of the same signing key, so settings and stored data are
+preserved across reloads.
 
 ## 2. "Load unpacked" is missing, greyed out, or Chrome starts with no toolbar
 
@@ -76,7 +77,7 @@ If the policy is coming from your organisation (it shows up in the "Source"
 column as something other than *policy*), you cannot fix it locally — send IT
 this exact request:
 
-> Please remove extension `jbdmpgnpkidpmibioddiapfgklfncgcf` from
+> Please remove extension `iknhlankjpcfkhdgnopkhbpdpillgokc` from
 > `ExtensionInstallBlocklist`, or add it to `ExtensionInstallAllowlist`, and
 > make sure `ExtensionSettings` does not block it.
 

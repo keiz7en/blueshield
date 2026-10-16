@@ -26,7 +26,7 @@ from pathlib import Path
 
 import websocket
 
-from project_paths import ROOT, STAGE
+from project_paths import ROOT, STAGE, blueshield_browser, scratch_root
 
 REPORT = ROOT / "release" / "tab-memory.json"
 LOG = ROOT / "release" / "chromium-tabs.log"
@@ -156,7 +156,7 @@ def main() -> int:
     if not STAGE.is_dir():
         raise RuntimeError(f"Missing unpacked extension: {STAGE}")
 
-    with tempfile.TemporaryDirectory(prefix="bs-tabs-", dir="/tmp/opencode",
+    with tempfile.TemporaryDirectory(prefix="bs-tabs-", dir=scratch_root(),
                                      ignore_cleanup_errors=True) as temp_name:
         temp = Path(temp_name)
         site = temp / "site"
@@ -177,7 +177,7 @@ def main() -> int:
                    XDG_CONFIG_HOME=str(temp / "config"),
                    XDG_CACHE_HOME=str(temp / "cache"))
         command = [
-            "chromium", "--headless=new", "--no-sandbox", "--disable-gpu",
+            *blueshield_browser(), "--headless=new", "--no-sandbox", "--disable-gpu",
             "--disable-background-networking", "--no-first-run",
             f"--user-data-dir={profile}", "--remote-debugging-port=0",
             "--remote-allow-origins=*",

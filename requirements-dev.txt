@@ -1,0 +1,2 @@
+# Extra Python packages the test harnesses need beyond the standard library.
+websocket-client

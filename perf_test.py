@@ -20,7 +20,7 @@ from pathlib import Path
 
 import websocket
 
-from project_paths import ROOT, STAGE
+from project_paths import ROOT, STAGE, blueshield_browser, scratch_root
 
 REPORT = ROOT / "release" / "perf.json"
 LOG = ROOT / "release" / "chromium-perf.log"
@@ -157,7 +157,7 @@ def main() -> int:
     if not STAGE.is_dir():
         raise RuntimeError(f"Missing unpacked extension: {STAGE}")
 
-    with tempfile.TemporaryDirectory(prefix="bs-perf-", dir="/tmp/opencode",
+    with tempfile.TemporaryDirectory(prefix="bs-perf-", dir=scratch_root(),
                                      ignore_cleanup_errors=True) as temp_name:
         temp = Path(temp_name)
         profile = temp / "profile"
@@ -167,7 +167,7 @@ def main() -> int:
                    XDG_CONFIG_HOME=str(temp / "config"),
                    XDG_CACHE_HOME=str(temp / "cache"))
         command = [
-            "chromium", "--headless=new", "--no-sandbox", "--disable-gpu",
+            *blueshield_browser(), "--headless=new", "--no-sandbox", "--disable-gpu",
             "--no-first-run", f"--user-data-dir={profile}",
             "--remote-debugging-port=0", "--remote-allow-origins=*",
             f"--disable-extensions-except={STAGE}", f"--load-extension={STAGE}",

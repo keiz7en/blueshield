@@ -36,11 +36,14 @@ git submodule update --init --recursive
 make mv3-chromium
 
 cd ../blueshield
+pip install -r requirements-dev.txt
 ./build.py
 ./smoke_test.py
 python3 tab_memory_test.py
 python3 perf_test.py
 python3 coverage_test.py
+python3 adblocktest.py
+python3 adblockbench_test.py
 ```
 
 `build.py` leaves both upstream repositories unchanged. It:
@@ -56,7 +59,7 @@ python3 coverage_test.py
 6. retries tracker rules that lose a startup race for the shared quota, and
    reports permanently invalid ones instead of stalling;
 7. rebrands every page and localized string, and applies the light-blue theme;
-8. adds the supplemental telemetry ruleset (see *Coverage* below);
+8. adds the supplemental blocklist ruleset (see *Coverage* below);
 9. merges managed-policy schemas and licences, then builds ZIP, CRX3 and reports.
 
 ### Why the browser used to stall for a second or two
@@ -66,9 +69,10 @@ Profiling (`perf_test.py`) showed the stall was one single
 synchronously, so installing the ~5,000 learned tracker rules in one call blocked
 the browser for **1,695 ms** at worker start-up. Three changes removed it:
 
-- rule sets are installed in slices of 200 with a yield between them, so the
-  longest single browser-side call is now **~283 ms** and the browser keeps
-  painting and loading between batches;
+- rule sets are installed in slices whose size adapts to how long each native
+  call took (target <= ~100 ms, bounded to 25-500 rules) with a yield between
+  them, so the browser keeps painting and loading between batches and fast
+  machines finish with fewer, larger round trips;
 - large storage writes are coalesced per tick and held back while the rule set is
   still being installed, instead of competing with it;
 - payload sizes are estimated without serialising the value, which removed the
@@ -87,11 +91,15 @@ and no long tasks.
 - `release/blueshield-metadata.json` — versions, commits, ID, sizes, hashes
 - `release/SHA256SUMS` — ZIP and CRX checksums
 - `release/smoke-test.json` — Chromium runtime, blocking, storage and memory report
+- `release/adblockbench.json` — AdBlockBench run captured by `adblockbench_test.py`
 
-Extension ID: `jbdmpgnpkidpmibioddiapfgklfncgcf`.
+Extension ID: `iknhlankjpcfkhdgnopkhbpdpillgokc`.
 The private key lives at `keys/blueshield-signing.pem`, outside the package.
 Back it up if this development identity must receive updates; for public
 distribution upload the ZIP through the Chrome Web Store instead.
+(The ID changed at 1.0.3: the pre-1.0.3 development key was never committed
+and could not be recovered, so a fresh key was generated; the old ID
+`jbdmpgnpkidpmibioddiapfgklfncgcf` belonged to that lost key.)
 
 ## Memory use
 
@@ -118,7 +126,7 @@ appears.
 material, the CRX3 structure and signature, ZIP/CRX payload parity, the derived
 extension ID, and that no upstream brand name survives in any page or locale.
 
-`smoke_test.py` loads the build in Chromium 153 and verifies:
+`smoke_test.py` loads the build in headless Chromium/Chrome for Testing and verifies:
 
 - both engines initialize with no critical errors and no duplicate rule IDs;
 - all 4,942 learned tracker rules install (nothing skipped);
@@ -146,15 +154,45 @@ retried in a fresh document before it is reported as a gap.
 | Dataset hosts blocked | **128 / 128 (100%)** |
 | Cosmetic element hiding (selectors taken from the shipped lists) | **pass** — ad elements hidden, page content untouched |
 
-The last twelve hosts (Apple, Oppo and Realme device telemetry, one ad-tech
-exchange host, one regional logging host) were covered by none of the enabled
-filter lists and are blocked by the supplemental `blueshield-telemetry` ruleset,
-which the build generates and registers as a network-only static ruleset.
+Most dataset hosts are covered by the enabled filter lists. The rest (device
+telemetry from Apple, Oppo, Realme and others, an ad-tech exchange host, a
+regional logging host, plus the DoubleClick ad endpoints and the
+`analytics.js` script that fetch() and Workers can reach where script-scoped
+rules do not apply) are blocked by the supplemental `blueshield-supplemental`
+ruleset, which the build generates and registers as a network-only static
+ruleset.
 
 Cosmetic (element hiding) filters are applied on **every** site by default, as
 full uBlock Origin and AdGuard do. Upstream Lite limits them to sites the user
 explicitly puts into "complete" mode, which left most ad placeholders visible.
 The filtering level remains adjustable in the unified settings page.
+
+## AdBlockBench and page-world privacy
+
+`adblockbench_test.py` runs the public
+[AdBlockBench](https://adblockbench.com) suite (34 live checks across network,
+cosmetic and API signals) against the built extension and fails on any scored
+leak or uncaught page error. BlueShield scores **100** on every signal.
+
+Two pieces close the gaps the filter lists alone could not:
+
+- the supplemental ruleset above blocks the DoubleClick ad endpoints and the
+  Worker-context `analytics.js` fetch that script-scoped rules miss;
+- `src/blueshield-privacy.js` is registered as a **MAIN-world** content script
+  at `document_start`, because isolated-world patches are invisible to page
+  scripts. It flips one color channel of the last pixel returned by
+  `getImageData` (canvas fingerprinting), nudges one audio sample by `1e-7` on
+  the first `getChannelData` read of each `AudioBuffer` (audio fingerprinting,
+  far below audibility), and removes the Topics, Protected Audience,
+  Attribution Reporting and Private State Tokens entry points so `typeof` is no
+  longer `"function"`. On browsers that already dropped those APIs it is a
+  silent no-op. `navigator.globalPrivacyControl` is deliberately left alone:
+  it is a privacy opt-out signal that must keep reporting true.
+
+The two beacon-delivery checks that AdBlockBench reports as *inconclusive* are
+server-verified: they need both a tracking beacon and the site's own decoy
+beacon to arrive, and the enabled lists correctly block that measurement
+domain as well, so the site excludes them from the score.
 
 ## Per-tab cost and background tabs
 

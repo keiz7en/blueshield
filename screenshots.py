@@ -4,7 +4,7 @@ import json, os, subprocess, tempfile, time, urllib.request
 from pathlib import Path
 import websocket
 
-from project_paths import ROOT, STAGE
+from project_paths import ROOT, STAGE, blueshield_browser, scratch_root
 
 OUT = ROOT / "release" / "screenshots"
 OUT.mkdir(exist_ok=True)
@@ -35,12 +35,12 @@ def targets(port):
 
 
 def main():
-    with tempfile.TemporaryDirectory(prefix="bs-shot-", dir="/tmp/opencode") as tmp:
+    with tempfile.TemporaryDirectory(prefix="bs-shot-", dir=scratch_root()) as tmp:
         tmp = Path(tmp)
         prof = tmp / "p"
         env = dict(os.environ, HOME=str(tmp))
         proc = subprocess.Popen([
-            "chromium", "--headless=new", "--no-sandbox", "--disable-gpu", "--no-first-run",
+            *blueshield_browser(), "--headless=new", "--no-sandbox", "--disable-gpu", "--no-first-run",
             f"--user-data-dir={prof}", "--remote-debugging-port=0", "--remote-allow-origins=*",
             f"--disable-extensions-except={STAGE}", f"--load-extension={STAGE}",
             "--window-size=1280,900", "about:blank",

@@ -19,11 +19,11 @@ from pathlib import Path
 
 import websocket
 
-from project_paths import ROOT, STAGE, VERSION
+from project_paths import ROOT, STAGE, VERSION, blueshield_browser, scratch_root
 
 REPORT = ROOT / "release" / "smoke-test.json"
 LOG = ROOT / "release" / "chromium-smoke.log"
-EXPECTED_ID = "jbdmpgnpkidpmibioddiapfgklfncgcf"
+EXPECTED_ID = "iknhlankjpcfkhdgnopkhbpdpillgokc"
 TRACKER_VENDOR = "vendor/tracker-protection"
 
 # Requests the bundled block lists are expected to stop. The first is a classic
@@ -240,7 +240,7 @@ def main() -> int:
         raise RuntimeError(f"Missing unpacked extension: {STAGE}")
 
     with tempfile.TemporaryDirectory(
-        prefix="blueshield-smoke-", dir="/tmp/opencode", ignore_cleanup_errors=True
+        prefix="blueshield-smoke-", dir=scratch_root(), ignore_cleanup_errors=True
     ) as temp_name:
         temp = Path(temp_name)
         site = temp / "site"
@@ -263,7 +263,7 @@ def main() -> int:
             "XDG_CACHE_HOME": str(cache),
         })
         command = [
-            "chromium",
+            *blueshield_browser(),
             "--headless=new",
             "--no-sandbox",
             "--disable-gpu",

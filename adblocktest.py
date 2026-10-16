@@ -20,7 +20,7 @@ from pathlib import Path
 
 import websocket
 
-from project_paths import ROOT, STAGE
+from project_paths import ROOT, STAGE, blueshield_browser, scratch_root
 
 REPORT = ROOT / "release" / "adblocktest.json"
 SITE = "https://adblock.turtlecute.org/"
@@ -97,7 +97,7 @@ COLLECT = r"""(() => {
 
 
 def main() -> int:
-    with tempfile.TemporaryDirectory(prefix="bs-adtest-", dir="/tmp/opencode",
+    with tempfile.TemporaryDirectory(prefix="bs-adtest-", dir=scratch_root(),
                                      ignore_cleanup_errors=True) as temp_name:
         temp = Path(temp_name)
         profile = temp / "profile"
@@ -107,7 +107,7 @@ def main() -> int:
                    XDG_CONFIG_HOME=str(temp / "config"),
                    XDG_CACHE_HOME=str(temp / "cache"))
         command = [
-            "chromium", "--headless=new", "--no-sandbox", "--disable-gpu",
+            *blueshield_browser(), "--headless=new", "--no-sandbox", "--disable-gpu",
             "--no-first-run", f"--user-data-dir={profile}",
             "--remote-debugging-port=0", "--remote-allow-origins=*",
             f"--disable-extensions-except={STAGE}", f"--load-extension={STAGE}",
@@ -148,9 +148,12 @@ def main() -> int:
             previous = -1
             deadline = time.monotonic() + 120
             while time.monotonic() < deadline:
-                added = worker.evaluate(
-                    "(globalThis.__blueshieldTrackerDnrStats || {}).added || 0")
-                if added >= 4900 and added == previous:
+                try:
+                    added = worker.evaluate(
+                        "(globalThis.__blueshieldTrackerDnrStats || {}).added || 0")
+                except Exception:
+                    added = None  # worker context still bootstrapping after attach
+                if added and added >= 4900 and added == previous:
                     break
                 previous = added
                 time.sleep(1.5)

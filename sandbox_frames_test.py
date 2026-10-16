@@ -23,7 +23,7 @@ from pathlib import Path
 
 import websocket
 
-from project_paths import ROOT, STAGE
+from project_paths import ROOT, STAGE, blueshield_browser, scratch_root
 
 REPORT = ROOT / "release" / "sandbox-frames.json"
 
@@ -112,7 +112,7 @@ def attach(port, target_id):
 
 def main() -> int:
     report = {}
-    with tempfile.TemporaryDirectory(prefix="bs-sandbox-", dir="/tmp/opencode",
+    with tempfile.TemporaryDirectory(prefix="bs-sandbox-", dir=scratch_root(),
                                      ignore_cleanup_errors=True) as temp_name:
         temp = Path(temp_name)
         site = temp / "site"
@@ -131,7 +131,7 @@ def main() -> int:
                    XDG_CONFIG_HOME=str(temp / "config"),
                    XDG_CACHE_HOME=str(temp / "cache"))
         command = [
-            "chromium", "--headless=new", "--no-sandbox", "--disable-gpu",
+            *blueshield_browser(), "--headless=new", "--no-sandbox", "--disable-gpu",
             "--no-first-run", f"--user-data-dir={profile}",
             "--remote-debugging-port=0", "--remote-allow-origins=*",
             f"--disable-extensions-except={STAGE}", f"--load-extension={STAGE}",
@@ -170,12 +170,19 @@ def main() -> int:
             previous = -1
             deadline = time.monotonic() + 150
             while time.monotonic() < deadline:
-                added = worker.evaluate(
-                    "(globalThis.__blueshieldTrackerDnrStats || {}).added || 0")
-                scripts = worker.evaluate("""(async () =>
-                    (await chrome.scripting.getRegisteredContentScripts())
-                        .map(s => s.id))()""") or []
-                if added >= 4900 and added == previous and "css-generic-all" in scripts:
+                try:
+                    added = worker.evaluate(
+                        "(globalThis.__blueshieldTrackerDnrStats || {}).added || 0")
+                    scripts = worker.evaluate("""(async () =>
+                        (await chrome.scripting.getRegisteredContentScripts())
+                            .map(s => s.id))()""") or []
+                except Exception:
+                    # The worker context is still bootstrapping right after
+                    # attach; its globals (including `chrome`) appear a beat
+                    # later, so treat this tick as not-ready instead of failing.
+                    added, scripts = None, []
+                if (added and added >= 4900 and added == previous
+                        and "css-generic-all" in scripts):
                     break
                 previous = added
                 time.sleep(1.5)

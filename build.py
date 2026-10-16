@@ -16,7 +16,10 @@ import subprocess
 import sys
 import tempfile
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
+from project_paths import blueshield_browser, scratch_root
 
 ROOT = Path(__file__).resolve().parent
 WORKSPACE = ROOT.parent
@@ -26,7 +29,7 @@ PB_REPO = WORKSPACE / "privacybadger-mv3"
 PB_SRC = PB_REPO / "src"
 RELEASE = ROOT / "release"
 EXTENSION_NAME = "BlueShield"
-EXTENSION_VERSION = "1.0.2.0"
+EXTENSION_VERSION = "1.0.3.0"
 
 # The staging directory and the two archives are always named from the product
 # name and version above, so bumping the version needs a single edit.
@@ -624,9 +627,26 @@ const __RETRY_DELAYS = [0, 200, 600, 1500, 3000];
 // one call carrying several thousand rules blocks the browser for over a
 // second: the user sees the tab stop and restart. Rule sets are therefore
 // always installed in slices, with a yield between them, so the browser can
-// keep painting and loading between batches. A slice that is rejected is split
+// keep painting and loading between batches. The slice size adapts to how long
+// each native call actually took (target <= ~100 ms) instead of trusting a
+// fixed rule count, so fast machines use fewer, larger round trips while slow
+// ones stay under the jank threshold. A slice that is rejected is split
 // further, down to single rules.
-const __RULE_CHUNK_SIZE = 200;
+const __RULE_CHUNK_MIN = 25;
+const __RULE_CHUNK_MAX = 500;
+const __RULE_CHUNK_TARGET_MS = 100;
+let __ruleChunkSize = 100;
+
+const __adaptRuleChunkSize = (ms, count) => {{
+    if (ms > __RULE_CHUNK_TARGET_MS * 1.5) {{
+        __ruleChunkSize = Math.max(__RULE_CHUNK_MIN, Math.floor(count / 2));
+    }} else if (ms < __RULE_CHUNK_TARGET_MS / 2 && count >= __ruleChunkSize) {{
+        __ruleChunkSize = Math.min(
+            __RULE_CHUNK_MAX,
+            Math.max(count + 1, Math.floor(count * 1.5)),
+        );
+    }}
+}};
 
 const __yieldToBrowser = () => new Promise(resolve => setTimeout(resolve, 0));
 
@@ -685,8 +705,9 @@ async function __updateRulesCompat(target, method, options, predicate) {{
     }}
 
     const total = addRules.length;
-    for (let offset = 0; offset < total; offset += __RULE_CHUNK_SIZE) {{
-        const chunk = addRules.slice(offset, offset + __RULE_CHUNK_SIZE);
+    for (let offset = 0; offset < total; offset += __ruleChunkSize) {{
+        const chunk = addRules.slice(offset, offset + __ruleChunkSize);
+        const sliceStarted = __now();
         try {{
             await __timed(
                 __perf.dnrNative,
@@ -694,6 +715,7 @@ async function __updateRulesCompat(target, method, options, predicate) {{
                 chunk.length,
             );
             __pbDnrStats.added += chunk.length;
+            __adaptRuleChunkSize(__now() - sliceStarted, chunk.length);
         }} catch(error) {{
             if (chunk.length === 1) {{
                 await __addRuleWithRetry(target, method, chunk[0]);
@@ -1996,15 +2018,15 @@ def patch_ublock(stage: Path) -> None:
     )
 
 
-TELEMETRY_RULESET_ID = "blueshield-telemetry"
-TELEMETRY_RULE_ID_BASE = 300_000_000
+SUPPLEMENTAL_RULESET_ID = "blueshield-supplemental"
+SUPPLEMENTAL_RULE_ID_BASE = 300_000_000
 
 # Endpoints that the public AdBlockTest dataset checks but that none of the
 # enabled filter lists cover: device-maker telemetry (Apple, Oppo, Realme),
 # an ad-tech exchange host, and one regional logging host. They are pure
 # telemetry, never page content, so blocking them is safe. Measured with
 # coverage_test.py against the same dataset.
-TELEMETRY_HOSTS = [
+SUPPLEMENTAL_HOSTS = [
     "adtech.yahooinc.com",
     "books-analytics-events.apple.com",
     "weather-analytics-events.apple.com",
@@ -2017,29 +2039,52 @@ TELEMETRY_HOSTS = [
     "bdapi-ads.realmemobile.com",
     "bdapi-in-ads.realmemobile.com",
     "log.byteoversea.com",
+    # AdBlockBench: ad endpoints that fetch() and Workers can reach because
+    # the enabled lists only cover them with script-scoped or cosmetic rules.
+    "googleads.g.doubleclick.net",
+    "securepubads.g.doubleclick.net",
+]
+
+# Path-scoped rules used in addition to SUPPLEMENTAL_HOSTS. No rule in this
+# ruleset declares resourceTypes, so page requests, Workers and scripts all
+# match a single rule.
+SUPPLEMENTAL_FILTERS = [
+    # The Worker-context probe fetches analytics.js where $script-scoped rules
+    # do not apply; block that script specifically, not the whole GA host.
+    "||www.google-analytics.com/analytics.js",
 ]
 
 
-def add_telemetry_ruleset(stage: Path) -> dict:
-    """Write the small supplemental telemetry ruleset and describe it for the UI."""
+def add_supplemental_ruleset(stage: Path) -> dict:
+    """Write the small supplemental blocklist ruleset and describe it for the UI."""
     rules = [
         {
-            "id": TELEMETRY_RULE_ID_BASE + index,
+            "id": SUPPLEMENTAL_RULE_ID_BASE + index,
             "priority": 100,
             "action": {"type": "block"},
             "condition": {"urlFilter": f"||{host}^"},
         }
-        for index, host in enumerate(TELEMETRY_HOSTS, start=1)
+        for index, host in enumerate(SUPPLEMENTAL_HOSTS, start=1)
     ]
-    write_json(stage / "rulesets" / "blueshield-telemetry.json", rules)
+    offset = len(SUPPLEMENTAL_HOSTS)
+    rules.extend(
+        {
+            "id": SUPPLEMENTAL_RULE_ID_BASE + offset + index,
+            "priority": 100,
+            "action": {"type": "block"},
+            "condition": {"urlFilter": url_filter},
+        }
+        for index, url_filter in enumerate(SUPPLEMENTAL_FILTERS, start=1)
+    )
+    write_json(stage / "rulesets" / f"{SUPPLEMENTAL_RULESET_ID}.json", rules)
 
     # Deliberately no entry in ruleset-details.json: that file drives cosmetic
     # and scriptlet registration, which would look for scripting files that this
     # network-only ruleset does not have and then fail as a whole.
     return {
-        "id": TELEMETRY_RULESET_ID,
+        "id": SUPPLEMENTAL_RULESET_ID,
         "enabled": True,
-        "path": f"rulesets/{TELEMETRY_RULESET_ID}.json",
+        "path": f"rulesets/{SUPPLEMENTAL_RULESET_ID}.json",
     }
 
 
@@ -2070,6 +2115,18 @@ def build_manifest(
         "service_worker": SERVICE_WORKER,
         "type": "module",
     }
+    # BlueShield's own page-world layer: MAIN world so ordinary page scripts
+    # see the privacy/fingerprinting patches (isolated worlds cannot affect
+    # them), document_start so it runs before any page script.
+    content_scripts = list(content_scripts) + [
+        {
+            "matches": ["http://*/*", "https://*/*"],
+            "js": ["blueshield-privacy.js"],
+            "run_at": "document_start",
+            "world": "MAIN",
+            "all_frames": True,
+        }
+    ]
     manifest["content_scripts"] = content_scripts
     manifest["action"] = {
         "default_title": EXTENSION_NAME,
@@ -2114,7 +2171,7 @@ def build_manifest(
         copied = json.loads(json.dumps(entry))
         copied["path"] = f"{PB_BASE}/{copied['path'].lstrip('/')}"
         rulesets.append(copied)
-    rulesets.append(add_telemetry_ruleset(STAGE))
+    rulesets.append(add_supplemental_ruleset(STAGE))
     manifest["declarative_net_request"] = {"rule_resources": rulesets}
     manifest["storage"] = {"managed_schema": managed_schema}
 
@@ -2138,6 +2195,7 @@ def add_branding_and_notices(pb_version: str, ubo_version: str) -> dict:
         "blueshield-settings.html",
         "blueshield-settings.css",
         "blueshield-settings.js",
+        "blueshield-privacy.js",
     ):
         shutil.move(STAGE / "blueshield-ui" / name, STAGE / name)
     shutil.rmtree(STAGE / "blueshield-ui")
@@ -2255,67 +2313,94 @@ def validate_references(stage: Path) -> None:
         raise RuntimeError("Manifest references missing files:\n" + "\n".join(missing))
 
 
+def _node_check(job: tuple[str, str | None]) -> tuple[str, subprocess.CompletedProcess]:
+    """Run one node parse check; ``None`` source means check the file by path."""
+    label, source = job
+    if source is None:
+        argv = ["node", "--check", label]
+    else:
+        argv = ["node", "--input-type=module", "--check"]
+    result = subprocess.run(
+        argv,
+        input=source,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    return label, result
+
+
 def syntax_check(stage: Path) -> None:
+    """Parse-check every shipped script with node, several files at a time.
+
+    Spawning node once per file dominates the build wall clock; running the
+    checks concurrently keeps the same validation at a fraction of the time.
+    """
+    jobs: list[tuple[str, str | None]] = []
     for path in sorted((stage / "vendor" / "privacybadger").rglob("*.js")):
         rel = path.relative_to(stage).as_posix()
         if rel.endswith("runtime.js") and PB_BASE + "/lib/" in rel:
             continue
         if rel.endswith("pb-manifest.js") or rel.endswith("runtime-injection.json"):
             continue
-        result = subprocess.run(
-            ["node", "--input-type=module", "--check"],
-            input=path.read_text(encoding="utf-8"),
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        if result.returncode != 0:
-            raise RuntimeError(f"JavaScript syntax error in {rel}:\n{result.stderr}")
+        jobs.append((rel, path.read_text(encoding="utf-8")))
 
     for path in sorted((stage / "vendor" / "privacybadger" / "content-scripts").glob("*.js")):
-        result = subprocess.run(
-            ["node", "--check", str(path)],
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        if result.returncode != 0:
-            raise RuntimeError(f"Content bundle syntax error in {path}:\n{result.stderr}")
+        jobs.append((str(path), None))
 
     for path in [
         STAGE / SERVICE_WORKER,
         STAGE / "blueshield-popup.js",
         STAGE / "blueshield-settings.js",
+        STAGE / "blueshield-privacy.js",
     ]:
-        result = subprocess.run(
-            ["node", "--input-type=module", "--check"],
-            input=path.read_text(encoding="utf-8"),
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        if result.returncode != 0:
-            raise RuntimeError(f"JavaScript syntax error in {path}:\n{result.stderr}")
+        jobs.append((str(path), path.read_text(encoding="utf-8")))
+
+    workers = min(32, (os.cpu_count() or 4) * 2)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for label, result in pool.map(_node_check, jobs):
+            if result.returncode != 0:
+                raise RuntimeError(f"JavaScript syntax error in {label}:\n{result.stderr}")
+
+
+def openssl_command() -> list[str]:
+    """Locate an OpenSSL binary (not shipped with Windows Git by default PATH)."""
+    found = shutil.which("openssl")
+    if found:
+        return [found]
+    for candidate in (
+        r"C:\Program Files\Git\usr\bin\openssl.exe",
+        r"C:\Program Files\Git\mingw64\bin\openssl.exe",
+    ):
+        if Path(candidate).is_file():
+            return [candidate]
+    raise RuntimeError("openssl not found; install OpenSSL or Git for Windows.")
 
 
 def ensure_signing_key() -> bytes:
+    openssl = openssl_command()
     KEY_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
     if not KEY_PATH.exists():
-        run([
-            "openssl", "genpkey", "-algorithm", "RSA",
+        run(openssl + [
+            "genpkey", "-algorithm", "RSA",
             "-pkeyopt", "rsa_keygen_bits:2048", "-out", str(KEY_PATH),
         ])
         KEY_PATH.chmod(0o600)
     KEY_PATH.chmod(0o600)
-    run(["openssl", "pkey", "-in", str(KEY_PATH), "-check", "-noout"])
+    run(openssl + ["pkey", "-in", str(KEY_PATH), "-check", "-noout"])
     # OpenSSL emits DER here, so write it to a temporary file rather than
-    # passing binary data through the text-oriented subprocess helper.
-    with tempfile.NamedTemporaryFile() as temp:
-        run([
-            "openssl", "pkey", "-in", str(KEY_PATH), "-pubout", "-outform", "DER",
-            "-out", temp.name,
+    # passing binary data through the text-oriented subprocess helper. The
+    # file must be closed while OpenSSL writes (Windows locks open files).
+    fd, temp_name = tempfile.mkstemp()
+    os.close(fd)
+    try:
+        run(openssl + [
+            "pkey", "-in", str(KEY_PATH), "-pubout", "-outform", "DER",
+            "-out", temp_name,
         ])
-        public_der = Path(temp.name).read_bytes()
+        public_der = Path(temp_name).read_bytes()
+    finally:
+        Path(temp_name).unlink(missing_ok=True)
     return public_der
 
 
@@ -2331,7 +2416,9 @@ def package_zip(stage: Path, output: Path) -> None:
     manifest_path = stage / "manifest.json"
     files.remove(manifest_path)
     files.insert(0, manifest_path)
-    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+    # Level 6 gives a near-identical size for JSON/JS payloads at roughly a
+    # third of the CPU time of level 9 on large archives.
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
         for path in files:
             name = path.relative_to(stage).as_posix()
             info = zipfile.ZipInfo(name, date_time=(2026, 1, 1, 0, 0, 0))
@@ -2345,7 +2432,7 @@ def package_crx(stage: Path, output: Path) -> None:
     generated = Path(str(stage) + ".crx")
     if generated.exists():
         generated.unlink()
-    with tempfile.TemporaryDirectory(prefix="blueshield-chromium-", dir="/tmp/opencode") as temp_name:
+    with tempfile.TemporaryDirectory(prefix="blueshield-chromium-", dir=scratch_root()) as temp_name:
         temp = Path(temp_name)
         profile = temp / "profile"
         home = temp / "home"
@@ -2361,7 +2448,8 @@ def package_crx(stage: Path, output: Path) -> None:
         })
         result = subprocess.run(
             [
-                "chromium", "--headless=new", "--no-sandbox", "--disable-gpu",
+                *blueshield_browser(), "--headless=new", "--no-sandbox", "--disable-gpu",
+                "--no-first-run",
                 f"--user-data-dir={profile}", f"--pack-extension={stage}",
                 f"--pack-extension-key={KEY_PATH}",
             ],
@@ -2400,10 +2488,13 @@ def parse_crx(path: Path, public_der: bytes) -> bytes:
 
 def validate_archives(zip_path: Path, crx_path: Path, public_der: bytes) -> None:
     payload = parse_crx(crx_path, public_der)
-    with tempfile.NamedTemporaryFile(suffix=".zip") as temp:
-        temp.write(payload)
-        temp.flush()
-        with zipfile.ZipFile(zip_path) as upload, zipfile.ZipFile(temp.name) as packed:
+    # The payload is reopened by name below; Windows locks NamedTemporaryFile
+    # handles, so use a closed mkstemp file instead.
+    fd, temp_name = tempfile.mkstemp(suffix=".zip")
+    os.close(fd)
+    try:
+        Path(temp_name).write_bytes(payload)
+        with zipfile.ZipFile(zip_path) as upload, zipfile.ZipFile(temp_name) as packed:
             upload_files = {info.filename: upload.read(info) for info in upload.infolist() if not info.is_dir()}
             packed_files = {info.filename: packed.read(info) for info in packed.infolist() if not info.is_dir()}
             if upload_files != packed_files:
@@ -2413,6 +2504,8 @@ def validate_archives(zip_path: Path, crx_path: Path, public_der: bytes) -> None
                 raise RuntimeError("Packed manifest is not MV3")
             if "update_url" in manifest:
                 raise RuntimeError("Development package must not contain update_url")
+    finally:
+        Path(temp_name).unlink(missing_ok=True)
 
 
 def sha256(path: Path) -> str:
